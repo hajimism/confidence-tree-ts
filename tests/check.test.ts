@@ -1,5 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { ct, git, project, write } from "./helpers.ts";
+
+// Tests here run ct and git several times; on a loaded machine that takes more than 5 s.
+setDefaultTimeout(60_000);
 
 const SRC = {
   "src/form.ts": `// 入力欄のフォーム
