@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { candidatesIn } from "../src/find.ts";
 import { findSymbol, parseSource } from "../src/symbols.ts";
 import { ct, git, project, write } from "./helpers.ts";
+
+// Tests here run ct, which runs bun test many times; under load that takes more than 5 s.
+setDefaultTimeout(120_000);
 
 const RECORD = `export function record(
   flags: { after?: number; sheet?: boolean; out: string },
