@@ -15,13 +15,20 @@ The README describes `ct guard` (守る) as a ratchet: CI stops only when a conf
 `ct guard [--base <ref>] [--baseline <file>] [--out <file>] [--all] [--comment <file>] [--json] [--timeout <duration>]`
 
 - **Which claims are proved**: a claim is proved again when it is not in the baseline, or when its fingerprint differs from the baseline's.
-  - The fingerprint is a sha256 of each join's symbol text and code, plus a sha256 of each test file.
+  - The fingerprint is a sha256 of the claim's ledger entry (its joins, with `breaks` and `generate`, and its test refs), a sha256 of each join's symbol text and code, and a sha256 of each test file.
   - Every other claim is carried over from the baseline as it was (`carried: true`).
   - `--all` proves every claim; this is the nightly run.
 - **Ratchet**: CI stops (exit 1) when one of these happens:
-  - A break that the baseline detected survives now. A break is the same when its join, the join's code, its source, its kind and its edit are the same. Such a break is run a second time before it counts (`recheck` in `ct prove`). If it is detected the second time, it is `unstable`, not a regression.
-  - A claim the baseline held is no longer held.
+  - A break that the baseline detected survives now. A break is the same when its join, the join's code, its source, its kind and its edit are the same.
+  - A claim the baseline held is no longer held, and the reason is one of these:
+    - one of its joins is no longer reached;
+    - a break survives that the baseline also had;
+    - a break survives on a join whose code or symbol changed (↻: proved again and judged by the new result).
   - A claim in the baseline, or in the ledger at `--base`, is gone and has no `retired` entry with a reason.
+- **Two survivals in a row**: every survival that would stop CI is run once more first (`recheck` in `ct prove`). If it is detected the second time, it is `unstable`, not a regression.
+- **The user's choice where two README rows meet**: "保持でなくなった → 止める" and "新しい壊し方が検出されなかった → 表示するだけ" conflict when a held claim gets a new break. A held claim stops CI only on lost reach or on a survival as above. These are shown and do not stop CI:
+  - a new break on an unchanged join that survives;
+  - a baseline-detected break that now runs out of time, is slow, or is unstable.
 - **Shown only**:
   - claims that are not held
   - new claims

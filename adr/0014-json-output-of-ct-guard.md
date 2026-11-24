@@ -41,13 +41,14 @@ CI and agents need guard's verdict as data: which claims regressed and why, and 
   {
     "version": 1, "commit": "…", "at": "…", "seeded": true,
     "claims": {
-      "app/save#stores": { "state": "survived", "carried": false, "joins": ["sha256:… sha256:…"],
+      "app/save#stores": { "state": "survived", "carried": false, "entry": "sha256:…", "joins": ["sha256:… sha256:…"],
         "tests": { "tests/app.test.ts": "sha256:…" }, "result": { "…": "ct prove --json's claim" } }
     }
   }
   ```
 
   Hidden breaks are in it with `from: "hidden"`, so the baseline knows which ones were detected. That is also why it is not printed: CI logs are where agents can read. For the same reason, ct prove's progress lines on stderr print a hidden break as （隠した壊し方）, without its edit.
+- `ct prove --json`'s breaks (adr/0007) gain two fields with this change: `doing`, as in `ct find` (adr/0010), and `from: "hidden"` beside `generated` and `ledger`. `ct prove` itself never sets `hidden`, since only guard applies hidden breaks. Both are additions, so prove's `version` stays 1.
 - `version` goes up only when a field is removed or changes meaning.
 
 ## Consequences

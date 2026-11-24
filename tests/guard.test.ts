@@ -181,6 +181,93 @@ describe("ct guard", () => {
     expect(text.out).toContain("● → ◍");
   });
 
+  test("a baseline-detected break that survives once, then is detected, is unstable, not a regression", () => {
+    const { root } = withBaseline();
+    // Broken, the test passes on its first broken run and fails on the next.
+    write(root, {
+      "tests/app.test.ts": APP_TEST.replace(
+        "expect(got).toEqual({ k: 3 });",
+        `if (got.k !== 3) {
+    const f = Bun.file(".broken-runs");
+    const n = (await f.exists()) ? Number(await f.text()) : 0;
+    await Bun.write(".broken-runs", String(n + 1));
+    if (n % 2 === 1) throw new Error("noticed");
+  }`,
+      ).replace(
+        'test("stores the value under k", () => {',
+        'test("stores the value under k", async () => {',
+      ),
+    });
+    const r = ct(root, SEED, "guard", "--json");
+    const g = { ...(JSON.parse(r.out) as Guard), ...outFile(root) };
+    const b = g.result.claims["app/save#stores"]?.result.joins[0]?.breaks.find(
+      (x) => x.from === "generated",
+    );
+    expect(b?.outcome).toBe("unstable");
+    expect(g.changes.find((c) => c.id === "app/save#stores")?.change).not.toBe("regressed");
+    expect(r.code).toBe(0);
+  });
+
+  test("a baseline-detected break that now only runs out of time is not a regression", () => {
+    const { root } = withBaseline();
+    write(root, {
+      "tests/app.test.ts": APP_TEST.replace(
+        "expect(got).toEqual({ k: 3 });",
+        "if (got.k !== 3) await new Promise(() => {});",
+      )
+        .replace(
+          'test("stores the value under k", () => {',
+          'test("stores the value under k", async () => {',
+        )
+        .replace(/\n\}\);\n$/, "\n}, 300);\n"),
+    });
+    const r = ct(root, SEED, "guard", "--json");
+    const g = { ...(JSON.parse(r.out) as Guard), ...outFile(root) };
+    const b = g.result.claims["app/save#stores"]?.result.joins[0]?.breaks.find(
+      (x) => x.from === "generated",
+    );
+    expect(b?.outcome).toBe("timeout");
+    expect(r.code).toBe(0);
+  });
+
+  test("a new break on an unchanged join of a held claim that survives is shown, not a regression", () => {
+    const { root } = withBaseline();
+    write(root, {
+      "confidence/app.yaml": LEDGER.replace(
+        '        code: store.set("k", v);\n',
+        '        code: store.set("k", v);\n        breaks: [\'store.set("k", v); store.set("k", v);\']\n',
+      ),
+    });
+    const r = ct(root, SEED, "guard", "--json");
+    const g = { ...(JSON.parse(r.out) as Guard), ...outFile(root) };
+    expect(g.result.claims["app/save#stores"]?.state).toBe("survived");
+    expect(g.changes.find((c) => c.id === "app/save#stores")?.change).not.toBe("regressed");
+    expect(r.code).toBe(0);
+  });
+
+  test("a held claim whose join's code changed and whose breaks now survive twice is a regression", () => {
+    const { root } = withBaseline();
+    write(root, {
+      "src/app.ts": APP.replace('store.set("k", v);', 'store.set("k", v * 1);'),
+      "confidence/app.yaml": LEDGER.replace(
+        'code: store.set("k", v);',
+        'code: store.set("k", v * 1);',
+      ),
+      "tests/app.test.ts": APP_TEST.replace(
+        "expect(got).toEqual({ k: 3 });",
+        "expect(got).toBeDefined();",
+      ),
+    });
+    const r = ct(root, SEED, "guard", "--json");
+    const g = { ...(JSON.parse(r.out) as Guard), ...outFile(root) };
+    expect(g.changes.find((c) => c.id === "app/save#stores")?.change).toBe("regressed");
+    const b = g.result.claims["app/save#stores"]?.result.joins[0]?.breaks.find(
+      (x) => x.from === "generated",
+    );
+    expect(b).toMatchObject({ outcome: "survived", runs: 2 });
+    expect(r.code).toBe(1);
+  });
+
   test("only claims whose join or tests changed are proved again; the rest are carried", () => {
     const { root } = withBaseline();
     write(root, { "tests/app.test.ts": `${APP_TEST}\n// touched\n` });

@@ -31,7 +31,8 @@ export type GuardClaim = {
   state: ClaimState;
   /** True when this run took the claim from the baseline instead of proving it. */
   carried: boolean;
-  /** What the claim was proved against: each join's symbol, and each test file. */
+  /** What the claim was proved against: its ledger entry, each join's symbol, each test file. */
+  entry: string;
   joins: string[];
   tests: Record<string, string>;
   result: ClaimResult;
@@ -89,6 +90,10 @@ export type GuardOptions = {
 };
 
 /** A break's identity across runs: the same join, the same code, the same edit. */
+/** A join's identity across runs: where it is, its code, and the symbol's text around it. */
+export const joinKey = (j: Pick<JoinResult, "in" | "code" | "symbolHash">) =>
+  [j.in, j.code, j.symbolHash].join("\0");
+
 export const breakKey = (j: Pick<JoinResult, "in" | "code">, b: BreakResult) =>
   [j.in, j.code, b.from, b.kind, b.replaces, b.with].join("\0");
 
@@ -98,7 +103,12 @@ function readFile(root: string, path: string): string | undefined {
 }
 
 /** The fingerprint a claim is proved against: its joins' symbols and its test files, as they are. */
-function fingerprint(root: string, c: Claim): { joins: string[]; tests: Record<string, string> } {
+function fingerprint(
+  root: string,
+  c: Claim,
+): { entry: string; joins: string[]; tests: Record<string, string> } {
+  // The claim as the ledger writes it: its joins (with breaks and generate) and its test refs.
+  const entry = sha256(JSON.stringify({ joins: c.joins, tests: c.tests.map((t) => t.raw) }));
   const joins = c.joins.map((j: Join) => {
     const text = readFile(root, j.file);
     if (text === undefined) return "missing";
@@ -111,7 +121,7 @@ function fingerprint(root: string, c: Claim): { joins: string[]; tests: Record<s
     const text = readFile(root, f);
     tests[f] = text === undefined ? "missing" : sha256(text);
   }
-  return { joins, tests };
+  return { entry, joins, tests };
 }
 
 /** The join's hidden breaks: picked from the candidates that are not one of its own `breaks`. */
@@ -140,14 +150,35 @@ export async function guard(root: string, opts: GuardOptions): Promise<GuardRepo
   const redo = ledger.claims.filter((c) => {
     const b = before[c.id];
     const p = prints.get(c.id);
-    return opts.all || b === undefined || !same(b.joins, p?.joins) || !same(b.tests, p?.tests);
+    return (
+      opts.all ||
+      b === undefined ||
+      b.entry !== p?.entry ||
+      !same(b.joins, p?.joins) ||
+      !same(b.tests, p?.tests)
+    );
   });
 
+  // What the baseline knew, by claim: the breaks it detected, every break it had, and its joins.
   const detectedBefore = new Set<string>();
+  const hadBefore = new Set<string>();
+  const joinsBefore = new Set<string>();
   for (const b of Object.values(before))
-    for (const j of b.result.joins)
-      for (const br of j.breaks)
+    for (const j of b.result.joins) {
+      joinsBefore.add(`${b.result.id}\0${joinKey(j)}`);
+      for (const br of j.breaks) {
+        hadBefore.add(`${b.result.id}\0${breakKey(j, br)}`);
         if (br.outcome === "detected") detectedBefore.add(`${b.result.id}\0${breakKey(j, br)}`);
+      }
+    }
+  const heldBefore = (id: string) => before[id]?.state === "held";
+  /**
+   * A survival that makes a held claim lose its hold: of a break the baseline had, or of any break
+   * of a join whose code changed. A new break on an unchanged join that survives is shown only.
+   */
+  const losesHold = (id: string, j: JoinResult, br: BreakResult) =>
+    heldBefore(id) &&
+    (hadBefore.has(`${id}\0${breakKey(j, br)}`) || !joinsBefore.has(`${id}\0${joinKey(j)}`));
 
   const seed = opts.seed;
   const proof = await prove(root, redo, {
@@ -156,7 +187,8 @@ export async function guard(root: string, opts: GuardOptions): Promise<GuardRepo
     ...(seed
       ? { extraBreaks: (_c: Claim, j: Join, t: string, loc: Span) => hiddenFor(seed, j, t, loc) }
       : {}),
-    recheck: (c, j, br) => detectedBefore.has(`${c.id}\0${breakKey(j, br)}`),
+    recheck: (c, j, br) =>
+      detectedBefore.has(`${c.id}\0${breakKey(j, br)}`) || losesHold(c.id, j, br),
   });
 
   const result: GuardFile = {
@@ -207,10 +239,25 @@ export async function guard(root: string, opts: GuardOptions): Promise<GuardRepo
           reasons.push(
             `基準で検出されていた壊し方が、検出されなくなった: ${j.in} 「${oneLine(j.code)}」: ${br.doing}も落ちない`,
           );
-    if (was.state === "held" && now.state !== "held")
-      reasons.push(
-        `基準で保持していた主張が、保持でなくなった（${now.result.reason ?? now.state}）`,
-      );
+    // A held claim stops CI when it loses its reach, or when a break survives twice that the
+    // baseline had or that is on a changed join. Timeouts, slow runs and unstable ones are shown.
+    if (was.state === "held" && !now.carried) {
+      for (const j of now.result.joins)
+        if (!j.reached)
+          reasons.push(
+            `基準で保持していた主張が、保持でなくなった: ${j.in} にテストが到達しなくなった`,
+          );
+      for (const j of now.result.joins)
+        for (const br of j.breaks)
+          if (
+            br.outcome === "survived" &&
+            !detectedBefore.has(`${c.id}\0${breakKey(j, br)}`) &&
+            losesHold(c.id, j, br)
+          )
+            reasons.push(
+              `基準で保持していた主張が、保持でなくなった: ${j.in} 「${oneLine(j.code)}」: ${br.doing}も落ちない`,
+            );
+    }
     const change: Change["change"] = reasons.length
       ? "regressed"
       : now.carried
