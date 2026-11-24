@@ -4,6 +4,10 @@ A confidence ledger for TypeScript: it breaks how a project's parts are put toge
 
 `README.md` is the design, stated as what the tool is. Nothing in it is built yet unless this file or the code says so.
 
+## Built so far
+
+- `ct check`: the ledger's rules 1–3 and 6, with `--base` and `--json`.
+
 ## Layout
 
 - `src/`: the CLI (`src/cli.ts`) and everything it runs.
