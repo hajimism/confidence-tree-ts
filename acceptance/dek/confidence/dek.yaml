@@ -1,0 +1,132 @@
+# dek main b5db9910, the ledger of ctp's stage 1 (dek-ctp, confidence/dek.yaml) rewritten in ct's shape.
+# What changed, join by join:
+#   - in: names the symbol; code is the join's code without the surrounding whitespace
+#   - breaks: the prototype's hand-written breaks that ct does not generate stay; those it generates
+#     ("" for a call, an assignment or a property; "if (false) {"; a dropped term) are left to it
+#   - probe: gone; ct places probes itself
+#   - the controls, kind: part in ctp, are unit claims with source impl
+area: dek
+
+claims:
+  dev-server#reclamp-on-change:
+    text: dev サーバーがプロジェクトの変更を見たら、各ルームの位置を、いまのデッキの中に詰め直す
+    source: impl src/server/dev.ts
+    joins:
+      - in: src/server/dev.ts#startDevServer.watch.onChange
+        code: rooms.reclamp();
+    tests:
+      - tests/server/dev.test.ts > startDevServer > syncs a skeleton slide when script.md is saved
+      - tests/server/dev.test.ts > startDevServer > refreshes presenter notes after a script-only edit
+
+  live-reload#feature-detect:
+    kind: boundary
+    text: ページに dekLive があれば SSE のイベントをそれに渡し、なければページを読み直す
+    source: impl src/runtime/live-reload.ts
+    joins:
+      - in: src/runtime/live-reload.ts#liveReloadScript
+        code: if (typeof live === "function") {
+    tests:
+      - tests/runtime/player.test.ts > liveReloadScript
+      - tests/server/dev-browser.test.ts
+
+  start#rail-hidden-when-presenting:
+    text: s キーは、レールが使えないときと発表者ビューが開いているときは、レールを切り替えない
+    source: impl src/runtime/start.ts
+    joins:
+      - in: src/runtime/start.ts#startPlayer.toggleRail
+        code: if (!rail.available() || presenter.isOpen()) {
+    tests:
+      - tests/runtime/browser.test.ts > player runtime in happy-dom > s hides the rail and remembers it in localStorage
+
+  lint#hung-on:
+    text: プラグインの検査があるデッキで止まったら、そのデッキを覚え、以降のデッキではそのプラグインを飛ばす
+    source: impl src/cli/lint.ts
+    joins:
+      - in: src/cli/lint.ts#lintCommand
+        code: plugin.hungOn = deck.name;
+    tests:
+      - tests/cli/lint.test.ts > lintCommand
+
+  playwright#pptx-layer-guard:
+    text: ワーカーの PPTX の答えの層が、文字・罫線・画像・図形のどれかの形をしているときだけ受け取る
+    source: impl src/core/playwright.ts
+    joins:
+      - in: src/core/playwright.ts#isPptxLayer
+        code: if (!value || typeof value !== "object") {
+        breaks:
+          # 早く返す: every value that is not null is turned away at the top.
+          - "if (value !== null) return false;\n  if (!value || typeof value !== \"object\") {"
+    tests:
+      - tests/cli/pptx.test.ts > pptxCommand
+      - tests/core/playwright.test.ts > parseVisualResponse
+
+  commands#shot-passes-sheet:
+    text: dekc shot は --sheet をコマンドに渡す
+    source: impl src/cli/commands.ts
+    joins:
+      - in: src/cli/commands.ts#COMMANDS.shot.run
+        code: "sheet: flags.sheet,"
+    tests:
+      - tests/cli/shot.test.ts > dekc shot > writes a screenshot for one slug and returns its path
+
+  commands#mv-passes-after:
+    text: dekc mv は --after をコマンドに渡す
+    source: impl src/cli/commands.ts
+    joins:
+      - in: src/cli/commands.ts#COMMANDS.mv.run
+        code: "after: flags.after,"
+    tests:
+      - tests/cli/mv.test.ts > dekc mv > accepts a positional deck name from the project root
+
+  commands#video-passes-fps:
+    text: dekc video は --fps をコマンドに渡す
+    source: impl src/cli/commands.ts
+    joins:
+      - in: src/cli/commands.ts#COMMANDS.video.run
+        code: "fps: flags.fps,"
+    tests:
+      - tests/cli/video.test.ts > dekc video > errors when Timeline is missing
+
+  control#rail-key:
+    kind: unit
+    text: （正の対照）s と S が、修飾キーなしでレールの切り替えになる
+    source: impl src/runtime/rail.ts
+    joins:
+      - in: src/runtime/rail.ts#isRailToggleKey
+        code: return isLetterKey(event, "s");
+        breaks: ['return isLetterKey(event, "x");']
+    tests:
+      - tests/runtime/rail.test.ts > isRailToggleKey > maps s and S without modifiers
+
+  control#rooms-keep-clamped:
+    kind: unit
+    text: （正の対照）スクリプトが縮んだら、ルームの位置を残ったスライドに引き戻す
+    source: impl src/server/rooms.ts
+    joins:
+      - in: src/server/rooms.ts#createRooms.reclamp
+        code: positions.set(room, kept);
+    tests:
+      - tests/server/rooms.test.ts > createRooms > after the script loses slides and beats, a kept position is pulled back
+
+  control#invalid-break:
+    kind: unit
+    text: （無効の対照）構文の通らない壊し方だけ
+    source: impl src/runtime/rail.ts
+    joins:
+      - in: src/runtime/rail.ts#isRailToggleKey
+        code: return isLetterKey(event, "s");
+        generate: false
+        breaks: ["return isLetterKey(event,;"]
+    tests:
+      - tests/runtime/rail.test.ts > isRailToggleKey > maps s and S without modifiers
+
+  control#browser-reach:
+    kind: unit
+    text: （到達の対照）実ブラウザで開いたページが、ライブリロードの購読を始める
+    source: impl src/runtime/live-reload.ts
+    joins:
+      - in: src/runtime/live-reload.ts#liveReloadScript
+        code: const es = new EventSource(url + liveTokenQuery(document.body.dataset.liveToken));
+        generate: false
+    tests:
+      - tests/server/dev-browser.test.ts
