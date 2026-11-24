@@ -22,7 +22,14 @@ export type BreakKind =
   | "true"
   | "ledger";
 
-export type Break = { kind: BreakKind; edit: Edit };
+export type Break = {
+  kind: BreakKind;
+  edit: Edit;
+  /** The node the break is about: the candidate `ct find` groups it under. */
+  site: Span;
+  /** What the break does, ready for 「…ても落ちない」: 消して, 偽にして, … */
+  doing: string;
+};
 
 const ORDER: BreakKind[] = [
   "delete-call",
@@ -57,25 +64,40 @@ export function generateBreaks(file: string, text: string, loc: Span): Break[] {
   const lo = loc.start - s.offset;
   const hi = loc.end - s.offset;
   const inside = (n: Span) => lo <= n.start && n.end <= hi;
-  const out: { kind: BreakKind; start: number; end: number; text: string }[] = [];
-  const add = (kind: BreakKind, n: Span, replacement: string) =>
-    out.push({ kind, start: n.start, end: n.end, text: replacement });
+  const out: {
+    kind: BreakKind;
+    start: number;
+    end: number;
+    text: string;
+    site: Span;
+    doing: string;
+  }[] = [];
+  const add = (kind: BreakKind, n: Span, replacement: string, doing: string, site: Span = n) =>
+    out.push({ kind, start: n.start, end: n.end, text: replacement, site, doing });
 
   walk(s.program, (n, parent) => {
     if (inside(n)) {
       if (n.type === "ExpressionStatement" && isNode(n.expression)) {
         const e = unwrap(n.expression);
-        if (e.type === "CallExpression" || e.type === "NewExpression") add("delete-call", n, "");
-        if (e.type === "AssignmentExpression") add("delete-assignment", n, "");
+        if (e.type === "CallExpression" || e.type === "NewExpression")
+          add("delete-call", n, "", "消して");
+        if (e.type === "AssignmentExpression") add("delete-assignment", n, "", "消して");
       }
       if (
         (n.type === "Property" || n.type === "SpreadElement") &&
         parent?.type === "ObjectExpression"
       ) {
         const comma = /^\s*,/.exec(s.text.slice(n.end));
-        add("delete-property", { start: n.start, end: n.end + (comma?.[0].length ?? 0) }, "");
+        add(
+          "delete-property",
+          { start: n.start, end: n.end + (comma?.[0].length ?? 0) },
+          "",
+          "消して",
+          n,
+        );
       }
-      if (n.type === "ReturnStatement" && n.argument != null) add("return-early", n, "return;");
+      if (n.type === "ReturnStatement" && n.argument != null)
+        add("return-early", n, "return;", "値を返さずに戻して");
       if (
         n.type === "LogicalExpression" &&
         LOGICAL.has(n.operator as string) &&
@@ -89,20 +111,24 @@ export function generateBreaks(file: string, text: string, loc: Span): Break[] {
           } else terms.push(x);
         };
         flat(n);
-        for (const t of terms)
+        const src = (x: Node) => s.text.slice(x.start, x.end);
+        for (const [i, t] of terms.entries())
           add(
             "drop-term",
             n,
             terms
               .filter((x) => x !== t)
-              .map((x) => s.text.slice(x.start, x.end))
+              .map(src)
               .join(` ${n.operator} `),
+            i === 0
+              ? `「${src(t)} ${n.operator}」を落として`
+              : `「${n.operator} ${src(t)}」を落として`,
           );
       }
     }
     if (CONDITIONAL.has(n.type) && isNode(n.test) && inside(n.test)) {
-      add("false", n.test, "false");
-      add("true", n.test, "true");
+      add("false", n.test, "false", "偽にして");
+      add("true", n.test, "true", "真にして");
     }
   });
 
@@ -113,6 +139,8 @@ export function generateBreaks(file: string, text: string, loc: Span): Break[] {
     .map(({ b }) => ({
       kind: b.kind,
       edit: { start: b.start + s.offset, end: b.end + s.offset, text: b.text },
+      site: { start: b.site.start + s.offset, end: b.site.end + s.offset },
+      doing: b.doing,
     }))
     .filter(({ edit }) => {
       const key = `${edit.start}:${edit.end}:${edit.text}`;
@@ -126,4 +154,6 @@ export function generateBreaks(file: string, text: string, loc: Span): Break[] {
 export const ledgerBreak = (loc: Span, replacement: string): Break => ({
   kind: "ledger",
   edit: { start: loc.start, end: loc.end, text: replacement },
+  site: loc,
+  doing: `「${replacement.replace(/\s+/g, " ").trim()}」に置き換えて`,
 });

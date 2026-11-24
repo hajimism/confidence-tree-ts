@@ -67,6 +67,28 @@ describe("placeProbes", () => {
     expect(syntaxError("src/x.ts", out)).toBeUndefined();
   });
 
+  test("a shorthand property is spelled out so its value can be wrapped", () => {
+    const text = "function f(project, deck) {\n  return check({ project, deck });\n}\n";
+    const out = probed(text, ["{ project", "deck }"]);
+    expect(out).toContain(`{ project: (${probeExpression(1, target())}, project), deck: (`);
+    expect(syntaxError("src/x.ts", out)).toBeUndefined();
+  });
+
+  test("never wraps a method's or a getter's function, which would not parse", () => {
+    const text =
+      "export const o = {\n  run() {\n    return 1;\n  },\n  get x() {\n    return 2;\n  },\n};\nexport class C {\n  m() {\n    return 3;\n  }\n}\n";
+    const out = probed(text, ["run() {\n    return 1;\n  }", "m() {\n    return 3;\n  }"]);
+    expect(syntaxError("src/x.ts", out)).toBeUndefined();
+    expect(out).toContain(`return (${probeExpression(1, target())}, 1);`);
+  });
+
+  test("never wraps a JSX child, which would render the probe as text", () => {
+    const text = "export function A() {\n  return <div>{x}<B /></div>;\n}\n";
+    const start = text.indexOf("<B />");
+    const r = placeProbes("src/x.tsx", text, [{ id: 1, loc: { start, end: start + 5 } }], target());
+    expect(r.ok && r.text.includes(", <B />)")).toBe(false);
+  });
+
   test("never wraps a callee, which would lose its this", () => {
     const text = "function f(o) {\n  o.m(1);\n}\n";
     const out = probed(text, ["o.m"]);
