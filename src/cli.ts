@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import pkg from "../package.json";
 import { check, formatCheck, UsageError } from "./check.ts";
 import { find, formatFind, type Target, TargetError } from "./find.ts";
+import { BASELINE, formatComment, formatGuard, GUARD_OUT, guard } from "./guard.ts";
 import { hotspots } from "./hotspots.ts";
 import { loadLedger } from "./ledger.ts";
 import { prove, selectClaims } from "./prove.ts";
@@ -17,6 +18,9 @@ const USAGE = `使い方: ct <コマンド>
   find <ファイル>#<シンボル>... [--json] [--timeout 120s]
   find --hotspots [--top 5] [--since "12 months ago"] [--list] [--json]
                                   関数の中を壊して、どのテストも気づかない場所を探す
+  guard [--base <ref>] [--baseline .ct/baseline.json] [--out .ct/guard.json]
+        [--all] [--comment <ファイル>] [--json] [--timeout 120s]
+                                  基準と比べ、一度得た確信を失っていないかを確かめる
   --version                       版を表示する
   --help                          この使い方を表示する
 
@@ -130,10 +134,42 @@ async function findCommand(args: string[]): Promise<number> {
   }
 }
 
+async function guardCommand(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: {
+      base: { type: "string" },
+      baseline: { type: "string", default: BASELINE },
+      out: { type: "string", default: GUARD_OUT },
+      all: { type: "boolean", default: false },
+      comment: { type: "string" },
+      json: { type: "boolean", default: false },
+      timeout: { type: "string", default: "120s" },
+    },
+  });
+  const seed = process.env.CT_SEED;
+  if (!seed) console.error("ct guard: CT_SEED がないので、隠した壊し方は当てない");
+  const r = await guard(root, {
+    baseline: values.baseline,
+    out: values.out,
+    all: values.all,
+    timeoutMs: parseDuration(values.timeout),
+    log: (l) => console.error(l),
+    ...(values.base !== undefined ? { base: values.base } : {}),
+    ...(seed ? { seed } : {}),
+  });
+  if (values.comment !== undefined) await Bun.write(values.comment, formatComment(r));
+  // The result holds every hidden break; it goes to --out only, never to the log.
+  const { result: _, ...shown } = r;
+  console.log(values.json ? JSON.stringify(shown, null, 2) : formatGuard(r));
+  return r.ok ? 0 : 1;
+}
+
 const COMMANDS: Record<string, (args: string[]) => Promise<number>> = {
   check: checkCommand,
   prove: proveCommand,
   find: findCommand,
+  guard: guardCommand,
 };
 
 const [command, ...rest] = process.argv.slice(2);

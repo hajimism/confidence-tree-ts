@@ -28,7 +28,9 @@ export type { BreakOutcome, Failure } from "./judge.ts";
 
 export type BreakResult = {
   kind: BreakKind;
-  from: "generated" | "ledger";
+  from: "generated" | "ledger" | "hidden";
+  /** What the break does: 「…ても落ちない」 reads as doing + 「も落ちない」. */
+  doing: string;
   /** The code the break replaces, and what it puts there. */
   replaces: string;
   with: string;
@@ -77,6 +79,10 @@ export type ProveOptions = {
   timeoutMs: number;
   keep?: boolean;
   log?: (line: string) => void;
+  /** More breaks for a join, applied after the shown ones (ct guard's hidden breaks). */
+  extraBreaks?: (claim: Claim, join: Join, text: string, loc: Span) => Break[];
+  /** Whether a break that survived must survive a second run to count (ct guard's regressions). */
+  recheck?: (claim: Claim, join: JoinResult, b: BreakResult) => boolean;
 };
 
 const RANK: Record<JoinState, number> = { held: 0, undetermined: 1, survived: 2, unreached: 3 };
@@ -254,12 +260,16 @@ export async function prove(root: string, claims: Claim[], opts: ProveOptions): 
         };
         res.joins.push(jr);
         if (!jr.reached) continue;
-        const all: (Break & { from: "generated" | "ledger" })[] = [
+        const all: (Break & { from: BreakResult["from"] })[] = [
           ...(x.join.generate ? generateBreaks(x.join.file, text, x.loc) : []).map((b) => ({
             ...b,
             from: "generated" as const,
           })),
           ...x.join.breaks.map((b) => ({ ...ledgerBreak(x.loc, b), from: "ledger" as const })),
+          ...(opts.extraBreaks?.(c, x.join, text, x.loc) ?? []).map((b) => ({
+            ...b,
+            from: "hidden" as const,
+          })),
         ];
         const seen = new Set<string>();
         for (const b of all) {
@@ -271,6 +281,7 @@ export async function prove(root: string, claims: Claim[], opts: ProveOptions): 
             replaces: text.slice(b.edit.start, b.edit.end),
             with: b.edit.text,
             from: b.from,
+            doing: b.doing,
             outcome: "invalid",
             ms: 0,
             runs: 0,
@@ -283,14 +294,27 @@ export async function prove(root: string, claims: Claim[], opts: ProveOptions): 
           }
           write(x.join.file, out);
           const j = await judge(() => run(c), base);
-          write(x.join.file, text);
           br.outcome = j.outcome;
           br.ms = j.ms;
           br.runs = j.runs;
           if (j.note !== undefined) br.note = j.note;
           if (j.failures.length) br.failures = j.failures;
+          if (br.outcome === "survived" && opts.recheck?.(c, jr, br)) {
+            const again = await judge(() => run(c), base);
+            br.runs += again.runs;
+            if (again.outcome === "survived") br.note = "2 回続けて生き残った";
+            else {
+              br.outcome = "unstable";
+              br.note = `1 回目は生き残り、2 回目は ${again.outcome}`;
+              if (again.failures.length) br.failures = again.failures;
+            }
+          }
+          write(x.join.file, text);
           log(
-            `破壊  ${c.id}  ${oneLine(br.replaces).slice(0, 40)} → ${oneLine(br.with).slice(0, 30) || "（消す）"}  ${br.outcome}`,
+            // A hidden break is not printed: guard's log is read in CI, where agents can see it.
+            br.from === "hidden"
+              ? `破壊  ${c.id}  （隠した壊し方）  ${br.outcome}`
+              : `破壊  ${c.id}  ${oneLine(br.replaces).slice(0, 40)} → ${oneLine(br.with).slice(0, 30) || "（消す）"}  ${br.outcome}`,
           );
         }
         const valid = jr.breaks.filter((b) => b.outcome !== "invalid");
