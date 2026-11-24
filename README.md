@@ -248,10 +248,15 @@ signup/api#returns-user                 ◌  apps/api/src/routes/signup.ts#post 
 ```yaml
 # .github/workflows/confidence.yml
 - run: bunx ct check
-- run: bunx ct guard --base origin/main --comment
+# 基準: main の最新の .ct/guard.json を、キャッシュから .ct/baseline.json に戻しておく
+- run: bunx ct guard --base origin/main --comment ct-comment.md
   env:
     CT_SEED: ${{ secrets.CT_SEED }}
+- if: always() && github.event_name == 'pull_request'
+  run: gh pr comment ${{ github.event.number }} --body-file ct-comment.md
 ```
+
+`ct guard` は、基準を `.ct/baseline.json` から読み、自分の結果を `.ct/guard.json` に書きます。main で書いた `.ct/guard.json` が、次の PR の基準です。`--comment` は、PR のコメントの本文をファイルに書くだけで、投稿は CI がします。
 
 ### ラチェット
 
@@ -274,7 +279,9 @@ signup/api#returns-user                 ◌  apps/api/src/routes/signup.ts#post 
 
 - 乱数の種は、組み立て点のコードのハッシュと、CI だけが持つ `CT_SEED` から作ります。エージェントには予測できません
 - 組み立て点のコードが変わらないかぎり、同じ壊し方が当たり続けます。PR と関係のない場所で突然落ちることはありません
-- 隠した壊し方が生き残ったら、PR のコメントで開示します。開示した壊し方は、以後は見える壊し方として扱います
+- 隠した壊し方が生き残ったら、PR のコメントで開示します。開示した壊し方は、以後は見える壊し方として扱います（いまは、テストが気づくまで毎回のコメントに出るだけで、`ct prove` はまだ当てません）
+- 隠した壊し方は、組み立て点の `code` の中だけに当てます。`prove` が生成しない種類の壊し方（引数を渡さない、引数や値を undefined にする、条件を反転する、`&&` と `||` を入れ替える、比較を反転する）から、組み立て点ごとに 2 つです
+- 隠した壊し方は、ログにも `--json` にも出しません。`.ct/guard.json` にだけ書きます
 
 ### PR のコメント
 

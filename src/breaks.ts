@@ -20,7 +20,14 @@ export type BreakKind =
   | "drop-term"
   | "false"
   | "true"
-  | "ledger";
+  | "ledger"
+  // Hidden breaks (src/hidden.ts): applied by ct guard only.
+  | "drop-arg"
+  | "undefined-arg"
+  | "negate"
+  | "swap-op"
+  | "flip-compare"
+  | "undefined-value";
 
 export type Break = {
   kind: BreakKind;
@@ -97,7 +104,7 @@ export function generateBreaks(file: string, text: string, loc: Span): Break[] {
         );
       }
       if (n.type === "ReturnStatement" && n.argument != null)
-        add("return-early", n, "return;", "値を返さずに戻して");
+        add("return-early", n, "return;", "値を返さなくして");
       if (
         n.type === "LogicalExpression" &&
         LOGICAL.has(n.operator as string) &&

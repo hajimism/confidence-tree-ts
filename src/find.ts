@@ -36,7 +36,7 @@ export type CandidateResult = {
   state: CandidateState;
   reachedBy: string[];
   note?: string;
-  breaks: (BreakResult & { doing: string })[];
+  breaks: BreakResult[];
 };
 
 export type TargetResult = {

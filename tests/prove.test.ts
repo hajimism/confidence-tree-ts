@@ -175,6 +175,7 @@ type Json = {
         replaces: string;
         with: string;
         from: string;
+        doing: string;
         ms: number;
         runs: number;
         outcome: string;
@@ -209,6 +210,7 @@ describe("ct prove", () => {
         replaces: "store.set(v);",
         with: "",
         from: "generated",
+        doing: "消して",
         outcome: "detected",
         ms: expect.any(Number),
         runs: 2,
