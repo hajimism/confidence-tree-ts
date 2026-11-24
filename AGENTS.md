@@ -7,12 +7,14 @@ A confidence ledger for TypeScript: it breaks how a project's parts are put toge
 ## Built so far
 
 - `ct check`: the ledger's rules 1–3 and 6, with `--base` and `--json`.
+- `ct prove`: reach, break and confirm, with generated and ledger breaks, `--json`, and `.ct/results.json`.
 
 ## Layout
 
 - `src/`: the CLI (`src/cli.ts`) and everything it runs.
 - `tests/`: `bun test`.
 - `adr/`: decision records.
+- `acceptance/`: the acceptance runs against real projects (`acceptance/dek/` is dek `b5db9910`).
 
 ## Rules
 

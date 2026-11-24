@@ -1,0 +1,14 @@
+# Written before the first ctp prove on dek, from the hand audit (2026-11-23) and a read of the
+# tests; never from ctp's output. "verified" = read in the tests or run by hand; "inferred" = read only.
+dek/dev-server#reclamp-on-change: survived # verified: no dev-server test reads /current after a script edit (old audit); inferred: that an edit test runs the line (survey)
+dek/live-reload#feature-detect: unreached # inferred: player.test.ts stubs EventSource and never fires onmessage; dev-browser sends no event
+dek/start#rail-hidden-when-presenting: survived # inferred: "s hides the rail" runs it, no test opens the presenter first
+dek/lint#hung-on: unreached # verified: lint.test.ts's hang test is rumdl's, not a plugin's (lint.test.ts:395)
+dek/playwright#pptx-layer-guard: unreached # inferred: fake-playwright answers layers: [], parseVisualResponse tests have no pptx case
+dek/commands#shot-passes-sheet: survived # inferred: dekc shot runs the line, no spawned test passes --sheet
+dek/commands#mv-passes-after: survived # inferred: same for --after
+dek/commands#video-passes-fps: survived # inferred: same for --fps
+dek/control#rail-key: held # inferred: rail.test.ts asserts s and S map to true
+dek/control#rooms-keep-clamped: held # inferred: picked by the survey agent; rooms.test.ts asserts the pulled-back position
+dek/control#invalid-break: undetermined
+# dek/control#browser-reach: no state; only its reached is checked (stage 2)
