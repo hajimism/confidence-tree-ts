@@ -31,6 +31,12 @@ The README describes `ct find` (探す): it works without a ledger, collects can
   - `--list` prints the ranking without breaking anything.
 - Exit code 0 when `ct find` ran, whatever it found; 2 when it could not run (a symbol that is not there, a bad flag).
 - `--propose` is not built yet.
+- **Probes, in addition to adr/0006**: running `find` on dek's `lintCommand` showed probes that did not parse. ct now handles three slots:
+  - A shorthand property is spelled out so its value can be wrapped: `{ project }` becomes `{ project: (probe, project) }`.
+  - A method's or an accessor's function (`run() {}`, `get x() {}`, a class method) is never wrapped.
+  - A JSX child is never wrapped, since it would render the probe as text.
+
+  When several probes in one file together fail to parse, ct names a probe that fails on its own, so the caller drops the one at fault rather than the first it checked.
 
 ## Consequences
 
