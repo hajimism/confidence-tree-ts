@@ -1,7 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ct, project } from "./helpers.ts";
+
+// Tests here run ct, which runs bun test many times; under load that takes more than 5 s.
+setDefaultTimeout(120_000);
 
 const FILES = {
   "src/app.ts": `export function save(store: { set(v: number): void }, log: (v: number) => void, v: number) {
