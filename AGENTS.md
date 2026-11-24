@@ -8,6 +8,7 @@ A confidence ledger for TypeScript: it breaks how a project's parts are put toge
 
 - `ct check`: the ledger's rules 1–3 and 6, with `--base` and `--json`.
 - `ct prove`: reach, break and confirm, with generated and ledger breaks, `--json`, and `.ct/results.json`.
+- `ct find <file#symbol>` and `ct find --hotspots`: candidates, a reach map by test file, and breaks of what was reached (`--propose` is not built).
 
 ## Layout
 

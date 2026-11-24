@@ -101,6 +101,11 @@ function unsafeSlot(parent: Node | undefined, key: string, n: Node): boolean {
   if (t === "MemberExpression" && key === "property") return true;
   if (t === "ChainExpression") return true;
   if ((t === "Property" || t.endsWith("Definition")) && key === "key") return true;
+  // A method's or an accessor's value is the function itself, written without `function`.
+  if (t === "Property" && key === "value" && (parent.method === true || parent.kind !== "init"))
+    return true;
+  if (t.endsWith("MethodDefinition") && key === "value") return true;
+  if (t.startsWith("JSX") && key === "children") return true;
   if (t.startsWith("Function") || t === "ArrowFunctionExpression")
     return key === "params" || key === "id";
   if (t.startsWith("Class")) return key === "id" || key === "superClass";
@@ -126,6 +131,8 @@ function placement(file: string, text: string, loc: Span, probe: string): Placem
   const lo = loc.start - s.offset;
   const hi = loc.end - s.offset;
   let expr: Node | undefined;
+  /** Set when `expr` is a shorthand property's value: it must be spelled out to be wrapped. */
+  let shorthand: string | undefined;
   let stmt: Node | undefined;
   const go = (v: unknown, parent: Node | undefined, key: string) => {
     if (Array.isArray(v)) {
@@ -136,6 +143,8 @@ function placement(file: string, text: string, loc: Span, probe: string): Placem
     const inside = lo <= v.start && v.end <= hi;
     if (inside && expr === undefined && EXPRESSIONS.has(v.type) && !unsafeSlot(parent, key, v)) {
       expr = v;
+      if (parent?.type === "Property" && parent.shorthand === true)
+        shorthand = s.text.slice(v.start, v.end);
       return;
     }
     if (inside && stmt === undefined && v.type.endsWith("Statement") && isStatementList(parent, v))
@@ -154,7 +163,11 @@ function placement(file: string, text: string, loc: Span, probe: string): Placem
   const at = (p: number) => p + s.offset;
   if (expr !== undefined)
     return {
-      open: { start: at(expr.start), end: at(expr.start), text: `(${probe}, ` },
+      open: {
+        start: at(expr.start),
+        end: at(expr.start),
+        text: `${shorthand === undefined ? "" : `${shorthand}: `}(${probe}, `,
+      },
       close: { start: at(expr.end), end: at(expr.end), text: ")" },
       span: { start: at(expr.start), end: at(expr.end) },
     };
@@ -215,6 +228,25 @@ export function placeProbes(
     from = i.pos;
   }
   out += text.slice(from);
+  const bad = brokenProbe(file, text, out, probes, openedAt);
+  if (bad === undefined) return { ok: true, text: out };
+  // Together they do not parse. Name a probe that does not parse on its own, so a caller that
+  // drops it drops the one at fault; if each parses alone, the last one.
+  if (probes.length > 1)
+    for (const p of probes) {
+      const alone = placeProbes(file, text, [p], target);
+      if (!alone.ok) return alone;
+    }
+  return bad;
+}
+
+function brokenProbe(
+  file: string,
+  text: string,
+  out: string,
+  probes: Probe[],
+  openedAt: Map<number, number>,
+): { ok: false; id: number; error: string } | undefined {
   for (const p of probes) {
     // The probe's own text must sit in a script that still parses: the file, and the template
     // string's script when the join is in one.
@@ -230,5 +262,5 @@ export function placeProbes(
         error: "プローブを入れると、テンプレート文字列の中のコードの構文が通らない",
       };
   }
-  return { ok: true, text: out };
+  return undefined;
 }

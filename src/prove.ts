@@ -14,25 +14,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Break, type BreakKind, generateBreaks, ledgerBreak, validity } from "./breaks.ts";
 import { makeCopy } from "./copy.ts";
+import { type BreakOutcome, type Failure, failed, failuresOf, judge } from "./judge.ts";
 import type { Claim, Join } from "./ledger.ts";
 import { clearHits, placeProbes, readHits, startHttpSink } from "./probe.ts";
-import { type Case, type FailureKind, type RunResult, runTests } from "./run.ts";
+import { runTests } from "./run.ts";
 import { applyEdit, type Span } from "./script.ts";
 import { findSymbol, locateCode, parseSource } from "./symbols.ts";
 
 export type JoinState = "held" | "survived" | "unreached" | "undetermined";
 export type ClaimState = JoinState | "untested";
 
-export type BreakOutcome =
-  | "detected"
-  | "survived"
-  | "invalid"
-  | "timeout"
-  | "slow"
-  | "unstable"
-  | "error";
-
-export type Failure = { test: string; kind: FailureKind; message: string };
+export type { BreakOutcome, Failure } from "./judge.ts";
 
 export type BreakResult = {
   kind: BreakKind;
@@ -87,9 +79,6 @@ export type ProveOptions = {
   log?: (line: string) => void;
 };
 
-/** A detection that took this much longer than the unbroken run is not trusted. */
-export const slowLimit = (baselineMs: number) => baselineMs * 3 + 2000;
-
 const RANK: Record<JoinState, number> = { held: 0, undetermined: 1, survived: 2, unreached: 3 };
 
 export const sha256 = (text: string) =>
@@ -111,47 +100,6 @@ function resolve(root: string, j: Join): Omit<Resolved, "probe"> | string {
   if (!loc.ok) return `${j.in}: 組み立て点が見つからないか一意でない（ct check を見る）`;
   return { join: j, code: j.code, loc, symbolText: text.slice(s.symbol.start, s.symbol.end) };
 }
-
-const testName = (c: Case) => c.path.join(" > ");
-
-function failuresOf(r: RunResult): Failure[] {
-  const out: Failure[] = r.cases
-    .filter((c) => c.status === "fail")
-    .map((c) => ({ test: testName(c), kind: c.kind ?? "exception", message: c.message ?? "" }));
-  for (const f of r.unloaded)
-    out.push({ test: `${f}（読み込み）`, kind: "exception", message: r.tail.slice(-1000) });
-  return out;
-}
-
-const failed = (r: RunResult) =>
-  r.killed || r.unloaded.length > 0 || r.cases.some((c) => c.status === "fail") || r.exitCode !== 0;
-
-/** One run's outcome, before confirmation: "detected" here means only that it failed as it should. */
-function outcomeOf(r: RunResult, baselineMs: number): { outcome: BreakOutcome; note?: string } {
-  if (r.killed) return { outcome: "timeout", note: "ct が打ち切った" };
-  if (r.cases.length === 0 && r.unloaded.length === 0)
-    return { outcome: "error", note: "名前に合うテストが 1 つも動かなかった" };
-  const f = failuresOf(r);
-  if (f.length === 0)
-    return r.exitCode === 0
-      ? { outcome: "survived" }
-      : { outcome: "error", note: `テストはすべて通ったが、終了コードが ${r.exitCode}` };
-  if (f.every((x) => x.kind === "timeout"))
-    return { outcome: "timeout", note: "落ちたテストがすべて時間切れ" };
-  if (r.ms > slowLimit(baselineMs))
-    return {
-      outcome: "slow",
-      note: `落ちるまでに ${r.ms}ms。壊す前は ${baselineMs}ms`,
-    };
-  return { outcome: "detected" };
-}
-
-const signature = (f: Failure[]) =>
-  f
-    .filter((x) => x.kind !== "timeout")
-    .map((x) => x.test)
-    .sort()
-    .join("\n");
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
@@ -334,29 +282,13 @@ export async function prove(root: string, claims: Claim[], opts: ProveOptions): 
             continue;
           }
           write(x.join.file, out);
-          const first = await run(c);
-          br.runs = 1;
-          br.ms = first.ms;
-          let o = outcomeOf(first, base);
-          let failures = failuresOf(first);
-          if (o.outcome === "detected") {
-            const again = await run(c);
-            br.runs = 2;
-            const o2 = outcomeOf(again, base);
-            const f2 = failuresOf(again);
-            if (o2.outcome !== "detected")
-              o = {
-                outcome: o2.outcome === "survived" ? "unstable" : o2.outcome,
-                note: `2 回目: ${o2.note ?? o2.outcome}`,
-              };
-            else if (signature(failures) !== signature(f2))
-              o = { outcome: "unstable", note: "2 回で、落ちたテストが違う" };
-            failures = o.outcome === "detected" ? failures : f2;
-          }
+          const j = await judge(() => run(c), base);
           write(x.join.file, text);
-          br.outcome = o.outcome;
-          if (o.note !== undefined) br.note = o.note;
-          if (failures.length) br.failures = failures;
+          br.outcome = j.outcome;
+          br.ms = j.ms;
+          br.runs = j.runs;
+          if (j.note !== undefined) br.note = j.note;
+          if (j.failures.length) br.failures = j.failures;
           log(
             `破壊  ${c.id}  ${oneLine(br.replaces).slice(0, 40)} → ${oneLine(br.with).slice(0, 30) || "（消す）"}  ${br.outcome}`,
           );

@@ -6,7 +6,13 @@
 // match one symbol only.
 import { parseSync } from "oxc-parser";
 
-export type SymbolSpan = { path: string; start: number; end: number };
+export type SymbolSpan = {
+  path: string;
+  start: number;
+  end: number;
+  /** Whether the symbol is a function: declared as one, or a name whose value is one. */
+  fn: boolean;
+};
 
 export type Parsed = {
   file: string;
@@ -53,6 +59,14 @@ function nameOf(n: Node): string | undefined {
   }
 }
 
+const FUNCTIONS = new Set(["FunctionExpression", "ArrowFunctionExpression", "FunctionDeclaration"]);
+
+function isFunction(n: Node): boolean {
+  if (n.type === "FunctionDeclaration" || n.type === "MethodDefinition") return true;
+  const value = n.type === "VariableDeclarator" ? n.init : n.value;
+  return isNode(value) && FUNCTIONS.has(value.type);
+}
+
 export function loaderFor(file: string): "ts" | "tsx" | "js" | "jsx" {
   if (file.endsWith(".tsx")) return "tsx";
   if (file.endsWith(".jsx")) return "jsx";
@@ -80,7 +94,8 @@ export function parseSource(file: string, text: string): Parsed {
     if (!isNode(v)) return;
     const name = nameOf(v);
     const chain = name === undefined ? outer : [...outer, name];
-    if (name !== undefined) symbols.push({ path: chain.join("."), start: v.start, end: v.end });
+    if (name !== undefined)
+      symbols.push({ path: chain.join("."), start: v.start, end: v.end, fn: isFunction(v) });
     for (const [k, child] of Object.entries(v)) {
       if (k === "type" || k === "start" || k === "end") continue;
       if (typeof child === "object" && child !== null) walk(child, chain);
