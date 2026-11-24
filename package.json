@@ -1,0 +1,29 @@
+{
+  "name": "confidence-tree-ts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Break how a TypeScript project's parts are put together, find where no test notices, and keep a confidence once it is won.",
+  "license": "MIT",
+  "author": "Hajime Nakagawa (https://github.com/hajimism)",
+  "type": "module",
+  "bin": {
+    "ct": "src/cli.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hajimism/confidence-tree-ts.git"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.5",
+    "@types/bun": "^1.4.2",
+    "typescript": "^7.0.2"
+  }
+}

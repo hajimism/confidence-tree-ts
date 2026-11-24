@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - run: bunx biome ci .
+      - run: bun run typecheck
+      - run: bun test
+
+  # The decision records, checked by the adrs that mise.toml pins.
+  adr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install adrs
+        env:
+          ADRS_VERSION: 0.12.1
+          ADRS_SHA256: 1e0dda183f38eeff44a6dd82d688df4a0f3a655396fcc72cdbc31de753d88419
+        run: |
+          curl -fsSL -o adrs.tar.xz "https://github.com/joshrotenberg/adrs/releases/download/v$ADRS_VERSION/adrs-x86_64-unknown-linux-gnu.tar.xz"
+          echo "$ADRS_SHA256  adrs.tar.xz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xJf adrs.tar.xz -C "$HOME/.local/bin" --strip-components=1 adrs-x86_64-unknown-linux-gnu/adrs
+          rm adrs.tar.xz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: adrs doctor
